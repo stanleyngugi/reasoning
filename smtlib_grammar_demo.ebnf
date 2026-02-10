@@ -1,0 +1,28 @@
+(* SMT-LIB 2.6 Simplified EBNF for GCD *)
+
+script          ::= command*
+command         ::= "(" command_body ")"
+
+command_body    ::= "assert" term
+                  | "check-sat"
+                  | "declare-const" symbol sort
+                  | "declare-fun" symbol "(" sort* ")" sort
+                  | "define-fun" symbol "(" sorted_var* ")" sort term
+                  | "get-model"
+                  | "get-value" "(" term+ ")"
+                  | "set-logic" symbol
+                  | "set-option" option
+
+term            ::= spec_constant
+                  | qual_identifier
+                  | "(" qual_identifier term+ ")"
+                  | "(" "let" "(" var_binding+ ")" term ")"
+                  | "(" "forall" "(" sorted_var+ ")" term ")"
+                  | "(" "exists" "(" sorted_var+ ")" term ")"
+                  | "(" "!" term attribute+ ")"
+
+sort            ::= identifier | "(" identifier sort+ ")"
+
+(* Terminals *)
+spec_constant   ::= numeral | decimal | hexadecimal | binary | string | boolean
+identifier      ::= symbol | "(_" symbol index+ ")"
