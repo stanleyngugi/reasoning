@@ -1,4 +1,149 @@
-**
+## Part V: 2026 Corrections and Contract Alignment (Authoritative Addendum)
+
+This addendum supersedes conflicting policy-level statements earlier in this file.
+
+Normative precedence:
+1. `ideas/proof_tir/V2_EXECUTION_SPEC.md` controls runtime behavior.
+2. `ideas/proof_tir/V2_RESEARCH_BASELINE.md` captures research assumptions and uncertainty boundaries.
+3. This document remains a verifier handbook and technical deep dive.
+
+### 42. Critical Corrections
+
+### 42.1 \"No false positive\" wording
+
+Earlier wording implies an absolute no-false-positive property.
+
+Corrected statement:
+- Untrusted generators cannot force acceptance when certificate/residual checks fail.
+- But wrong formalization can still produce internally consistent wrong-world certificates.
+- Therefore formalization is a first-class risk and must be mitigated explicitly.
+
+Mandatory mitigation set:
+- dual formalization (or equivalent independent extraction paths)
+- deterministic constraint audit
+- independent consequence checks
+
+### 42.2 Core tactic strategy
+
+Earlier sections over-emphasize `ring` as the primary continuous-domain primitive.
+
+Corrected baseline:
+- Core path: `native_decide` + `grind`.
+- Mathlib path: `ring`, `field_simp`, `linarith`, `nlinarith`, `positivity`, `linear_combination`, `norm_num`.
+
+Interpretation:
+- Kernel-checked Mathlib proofs remain strongest where available.
+- Core path remains viable for deployment-constrained settings.
+
+### 42.3 Sanitization hard gate
+
+Sanitization is mandatory before checker invocation for generated Lean artifacts.
+
+Minimum hard rules:
+- strip `@[implemented_by]`
+- strip `@[extern]`
+- reject non-allowlisted imports
+- reject checker code outside template contracts
+
+No checker invocation without sanitizer pass.
+
+### 43. Geometry/Algebra Risk Model Update
+
+Dominant residual risks:
+1. formalization mismatch
+2. branch ambiguity
+3. insufficient certificate class for claim type
+
+Tier A (geometry/algebra) requires:
+- audit-strength formalization path
+- branch tracking (no implicit first-root acceptance)
+- full residual checks against original constraints
+- certificate class appropriate to domain
+- checker pass
+
+### 44. Elimination Workflow Correction
+
+Elimination roots are necessary conditions, not sufficient.
+
+Safe acceptance protocol:
+1. domain sieve
+2. back-substitution extension existence
+3. exact residual checks on original constraints
+4. branch/domain disambiguation
+5. bounded-answer policy checks (when contest format requires bounds)
+
+If any step fails, reject or downgrade.
+
+### 45. Inequality Discovery and Verification Update
+
+Do not treat SDP as the only default discovery path.
+
+Preferred sequence:
+1. decomposition-first proposal search (SOS/Schur/AM-GM structure)
+2. deterministic identity checking (`grind`/`ring` by profile)
+3. deterministic nonnegativity path via lemmas/checker
+4. SDP-based search as fallback
+
+If decomposition identity cannot be certified, downgrade or fallback.
+
+### 46. Corrected Template B (Array-Only)
+
+Earlier Template B uses `List.range`, conflicting with Array-only performance guidance.
+Use this corrected version:
+
+```lean
+def fib_arr (n : Nat) : Nat :=
+  if n == 0 then 0
+  else if n == 1 then 1
+  else
+    let arr := (Array.range (n - 1)).foldl
+      (init := #[(0 : Nat), 1])
+      (fun memo _ =>
+        let k := memo.size
+        let v := memo[k - 1]! + memo[k - 2]!
+        memo.push v)
+    arr[n]!
+```
+
+### 47. Bounded vs Universal Claim Discipline
+
+Rules:
+- bounded `native_decide` checks certify bounded claims only
+- universal claims require symbolic certificate checking (or explicit probabilistic label)
+- never promote finite-range checks to universal correctness without proof obligations
+
+### 48. Deployment Clarifications
+
+1. persistent Lean and symbolic workers are preferred
+2. repeated cold starts in scoring loops are non-competitive
+3. offline packaging assumptions must be validated before competition freeze
+
+### 49. Unified Trust Statement (Revised)
+
+Trusted:
+- kernel for proof-term validation
+- runtime/compiler path when using `native_decide` (competition-acceptable trust expansion)
+
+Untrusted:
+- LLM generation
+- solver proposals
+- decomposition proposals
+- reconstruction guesses
+
+Enforcement:
+- untrusted outputs become candidates only
+- acceptance requires audit + certificate + checker pass at target tier
+
+### 50. Immediate Implementation Checklist
+
+- [ ] enforce `S1.5` sanitizer gate before checker calls
+- [ ] enforce branch tracking (ban implicit `sol[0]` acceptance)
+- [ ] enforce elimination safe acceptance protocol for algebra/geometry Tier A
+- [ ] use Array-only templates for `native_decide` data-heavy checks
+- [ ] enforce bounded/universal claim labeling discipline
+- [ ] enforce correlation-aware confidence (no naive independence multiplication)
+
+This addendum is the authoritative correction layer for this handbook.
 
 # Core Verification Engine: `native_decide`, `ring`, and Python-to-Lean Translation
 
@@ -290,7 +435,7 @@ The `Lean.reduceBool` docstring explicitly quantifies this: "by using this featu
 
   
 
-**For competition use, this is acceptable.** The probability of a compiler bug causing a false positive (accepting a wrong formula) is negligible compared to LLM reasoning errors (5-10%). For Mathlib publication, `native_decide` is avoided precisely because of this TCB expansion.
+**For competition use, this is acceptable.** `native_decide` expands the runtime TCB (compiler/interpreter path), while Mathlib proof-term paths minimize that runtime trust expansion. This is a trust-model tradeoff, not a replacement for formalization quality controls.
 
   
 
@@ -546,7 +691,7 @@ Addition (`+`), multiplication (`*`), exponentiation (`**` → `^`), comparison 
 
   
 
-Both Python and Lean support arbitrary-precision integers. Both `Array.range n` and `List.range n` exist in core Lean 4 and produce `[0, 1, ..., n-1]`, matching Python's `range(n)`.
+Both Python and Lean support arbitrary-precision integers. `Array.range n` and `List.range n` both produce `[0, 1, ..., n-1]`, matching Python's `range(n)` semantically; generated checker code should prefer `Array.range` for performance and contract consistency.
 
   
 
@@ -694,7 +839,8 @@ For offline competition deployment without Mathlib, we need to know exactly what
 
 | `Rat` | ✅ | | In `Init.Data.Rat`. But `norm_num` for `Rat` requires Mathlib |
 
-| `List.range`, `Array.range` | ✅ | | |
+| `Array.range` | ✅ | | Preferred for generated checker templates |
+| `List.range` | ✅ | | Semantically valid, but avoid in `native_decide` checker templates |
 
 | `List.map`, `Array.map`, `foldl`, etc. | ✅ | | |
 
@@ -816,7 +962,7 @@ def fib_arr (n : Nat) : Nat :=
 
   else
 
-    let arr := (List.range (n - 1)).foldl
+let arr := (Array.range (n - 1)).foldl
 
       (init := #[(0 : Nat), 1])
 
@@ -1142,7 +1288,7 @@ For geometry and algebra, `ring` is as important as `native_decide`. It verifies
 
   
 
-**Trust model:** `ring` and `grobner` produce full proof terms checked by the kernel. Zero TCB expansion. This is strictly stronger than `native_decide` from a trust perspective.
+**Trust model:** `ring` and `grobner` produce full proof terms checked by the kernel (minimal runtime trust expansion). `native_decide` uses a larger runtime TCB. This trust distinction does not remove formalization-risk obligations.
 
   
 
@@ -1540,7 +1686,7 @@ Not all problems need heavy machinery. The architecture dispatches to the simple
 
   
 
-**Levels 3–4** use `ring`/`linarith`/`nlinarith` and require Mathlib. These produce kernel-checkable proofs with zero TCB expansion — strictly stronger guarantees than `native_decide`. Deployment requires Mathlib `.olean` cache (~5 GB total with toolchain).
+**Levels 3–4** use `ring`/`linarith`/`nlinarith` and require Mathlib. These produce kernel-checkable proof terms with minimal runtime trust expansion relative to `native_decide`. Deployment requires Mathlib `.olean` cache (~5 GB total with toolchain).
 
   
 
@@ -1804,7 +1950,7 @@ This covers the majority of competition problems and eliminates the need for cus
 
   
 
-The geometry/algebra pipeline inherits the same fundamental property as the discrete pipeline: **no untrusted component can cause a false positive.** The SDP solver can be wrong, the LLM can hallucinate constraints, PSLQ can guess wrong — Lean catches all of these. And for the `ring`-based verification path (Levels 3-4), even the compiler is not trusted — proofs are kernel-checked with zero TCB expansion.
+The geometry/algebra pipeline preserves a key verifier property: untrusted generators (LLM/SDP/PSLQ) cannot force acceptance when certificates/residual checks fail. However, formalization mismatch can still yield internally consistent wrong-world certificates unless mitigated by dual formalization, deterministic audits, and consequence checks. For the `ring`-based verification path (Levels 3-4), proof terms are kernel-checked with minimal runtime trust expansion.
 
   
 
@@ -1930,7 +2076,7 @@ OR (if Mathlib available, for universal theorem):
 
   
 
-**No untrusted component can cause a false positive.** Every untrusted output is checked by a trusted verifier. The `ring`-based path is strictly stronger than `native_decide` — it doesn't even trust the compiler.
+**Untrusted generators cannot force acceptance when checks fail.** Acceptance still depends on correct formalization and constraint extraction. The `ring`-based path uses kernel-checked proof terms with lower runtime trust expansion than `native_decide`.
 
   
 
@@ -1983,6 +2129,8 @@ Lean verification is fast at all levels. `native_decide` uses GMP arithmetic and
 - [ ] **Termination:** All functions are total. Use `fuel` parameter if termination proof is non-trivial.
 
 - [ ] **Purity:** No `unsafe`, `partial`, `@[extern]`, `@[implemented_by]`, or `IO` in verification code.
+
+- [ ] **Sanitizer gate:** Enforce `S1.5` policy (strip banned attributes, enforce import allowlist, reject non-template checker code).
 
 - [ ] **Types:** Default to `Int` when subtraction is possible. Use `Nat` only for provably non-negative values.
 

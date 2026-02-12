@@ -398,6 +398,68 @@ Input: sequence [a₁, ..., aₖ] (typically k = 20-40)
 
   
 
+### 2.6 Hankel Matrix Pre-Routing
+
+  
+
+Before choosing between BM and the holonomic guesser, compute the Hankel determinants of the trace to characterize its generating function structure.
+
+  
+
+Given a sequence `[a₀, a₁, ..., aₖ]`, the order-r Hankel matrix is:
+
+  
+
+```
+H_r = [[a_i+j]]  for i,j = 0,...,r-1
+```
+
+  
+
+Compute `det(H_r)` for increasing r. The behavior determines the routing:
+
+  
+
+| Hankel Behavior | Interpretation | Route |
+|---|---|---|
+| `det(H_r) = 0` for all `r > L` | Finite-rank → linear recurrence of order L | **BM (Tier 2)** |
+| `det(H_r)` grows regularly (polynomial/exponential) | Rational generating function structure | **Padé approximants** |
+| `det(H_r)` chaotic / no pattern | Non-linear or non-rational | **OEIS / LLM / TIR fallback** |
+
+  
+
+```python
+from fractions import Fraction
+
+def hankel_determinants(seq, max_order=None):
+    """Compute Hankel determinants for pre-routing diagnostic."""
+    if max_order is None:
+        max_order = len(seq) // 2
+    dets = []
+    for r in range(1, max_order + 1):
+        H = [[Fraction(seq[i + j]) for j in range(r)] for i in range(r)]
+        dets.append(_det_exact(H))
+    return dets
+
+def hankel_route(seq):
+    """Route sequence based on Hankel determinant behavior."""
+    dets = hankel_determinants(seq)
+    # Find rank: first r where det vanishes and stays zero
+    for r, d in enumerate(dets):
+        if d == 0 and all(dd == 0 for dd in dets[r:]):
+            return "BM", r  # Linear recurrence of order r
+    # Check for regular growth (Padé candidate)
+    if all(d != 0 for d in dets[:len(dets)//2]):
+        return "PADE", None
+    return "FALLBACK", None
+```
+
+  
+
+**Cost:** O(r³) per determinant, negligible for competition-size traces (r ≤ 20). This diagnostic runs in <1ms and avoids wasting time on the wrong miner.
+
+  
+
 ---
 
   
@@ -1943,6 +2005,136 @@ Ordered by impact-to-effort ratio for AIMO 3:
 - Transforms "strong testing" into "actual proof"
 
 - This is what makes the approach genuinely novel vs. just "fancy TIR"
+
+  
+
+---
+
+  
+
+## 14. Trace Generation Prompting
+
+  
+
+The quality of the mined sequence depends entirely on the trace. These are the prompting strategies for generating reliable traces.
+
+  
+
+### 14.1 TraceGen System Prompt
+
+  
+
+```
+# Role
+You are an expert Research Software Engineer specializing in Experimental Mathematics.
+
+# Objective
+Write a robust, defensive Python script to compute the first N terms of the sequence f(n).
+
+# Protocol
+1. **Plan:** Analyze the problem. Is it combinatorial, number-theoretic, or geometric?
+2. **Strategy:** Choose a brute-force algorithm. Correctness > Speed for small N.
+3. **Libraries:** Use `itertools` (combinatorics), `sympy` (number theory), `networkx` (graphs).
+4. **Implementation:** Write the function `compute_sequence(limit)`.
+   - Use a Generator (`yield`).
+   - Use `@functools.cache` for recursion.
+   - Assert types and constraints (Defensive Coding).
+   - Implement a Timeout mechanism (10s limit).
+5. **Output:** The script must print the sequence as a list of STRINGS to avoid precision loss.
+
+# Output Format
+Return ONLY the Python code block.
+```
+
+  
+
+### 14.2 Consensus Verification (AlphaCode-style)
+
+  
+
+To mitigate trace errors, generate multiple independent scripts and cluster by output:
+
+  
+
+1. Generate K scripts (10–50) at temperature ~0.7
+2. Execute all for n = 1..5 (fast filter — discard crashes/timeouts)
+3. Cluster surviving scripts by output trace
+4. Select most efficient script from the largest cluster
+5. Use the consensus trace as ground truth for mining
+
+  
+
+### 14.3 Key Failure Mitigations
+
+  
+
+| Failure Mode | Cause | Fix |
+|---|---|---|
+| **JSON precision loss** | Large integers (>2⁵³) corrupt in float-based JSON | Output as list of strings |
+| **Labeled vs unlabeled** | LLMs confuse ordered/unordered counting | Prompt must specify explicitly |
+| **Symmetry breaking** | Overcounting in grid/geometry enumeration | Fix first element to break symmetry |
+
+  
+
+---
+
+  
+
+## 15. Verification Retry Protocol
+
+  
+
+When Lean verification fails, a structured retry loop diagnoses the failure and selects the correct recovery strategy.
+
+  
+
+### 15.1 Failure Diagnosis Matrix
+
+  
+
+| Error Class | Regex Signature | Root Cause | Recovery |
+|---|---|---|---|
+| **Syntax** | `unexpected token`, `function expected` | Lean 3 syntax / hallucination | Prompt LLM with error for fix |
+| **Type** | `failed to synthesize instance DivisionRing` | `/` on Nat/Int without Ring | Cast to Rat or use `Int.fdiv` |
+| **Type** | `type mismatch.*expected.*Int.*got.*Rat` | Domain mixing | Inject coercion |
+| **Resource** | `(deterministic) timeout at 'whnf'` | Calc too heavy / inefficient recursion | Reduce N, optimize to tail recursion |
+| **Logic** | `tactic 'native_decide' failed` (False) | Formula doesn't match trace | Extract counterexample index, re-mine |
+| **System** | `failed to compile definition` | Nested `let rec` / C gen bug | Rewrite to simple structural recursion |
+
+  
+
+### 15.2 Diagnostic native_decide (Counterexample Extraction)
+
+  
+
+Instead of treating `native_decide` as binary pass/fail, extract which indices fail:
+
+  
+
+```lean
+-- Returns the specific n values where formula disagrees with trace
+#eval (Array.range 100).filter (fun n => f n != expected[n]!)
+```
+
+  
+
+This guides mining refinement: off-by-one errors, wrong initial conditions, or parity-dependent formulas become immediately visible.
+
+  
+
+### 15.3 Resource Budget Annealing
+
+  
+
+Each problem gets a three-phase time budget:
+
+  
+
+| Phase | Time Window | Strategy |
+|---|---|---|
+| **Exploration** | 0–120s | Generate 3 traces. Run fast miners. Quick verification (N=10). |
+| **Exploitation** | 120–300s | Lock best candidate. Full verification (N=100). Syntax repair loops. |
+| **Panic** | 300–360s | Abandon verification. Fall back to TIR. Python answer > no answer. |
 
   
 

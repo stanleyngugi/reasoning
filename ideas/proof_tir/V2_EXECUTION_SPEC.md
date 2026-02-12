@@ -270,6 +270,11 @@ SymPy hardening requirements:
 - strict timeout wrappers
 - `check=False` when checksol hangs are known failure mode
 
+### Research Rationale
+
+- **SymPy Ceiling:** SymPy has documented reliability and performance ceilings on harder multivariate polynomial systems; treat as scout/fast path only.
+- **Sage/Singular Role:** Robust heavy solve behavior depends on stronger algebraic kernels; Sage/Singular is default heavy path for high-complexity instances.
+
 ---
 
 ## 5) Safe Acceptance Protocol for Elimination Workflows
@@ -290,6 +295,11 @@ For each elimination candidate `alpha`:
 - verify candidate against bounded answer policy
 
 Tier A requires full completion of all five steps.
+
+### Research Rationale
+
+- **Necessary vs Sufficient:** Elimination polynomial roots are necessary conditions only; acceptance from elimination root alone is unsafe.
+- **Safe Acceptance Protocol:** Tier A in algebra/geometry depends on domain sieve + back-substitution + residual proof; confirmed by systematic failure analysis.
 
 ---
 
@@ -315,6 +325,12 @@ Tier A requires full completion of all five steps.
 - decomposition prompting should follow structured templates (degree, asymptotic, symmetry, known-form mapping, then explicit decomposition proposal).
 - if identity cannot be certified, downgrade tier or fallback.
 
+### Research Rationale
+
+- **Decomposition-First Viability:** Decomposition-guided workflows (SOS/Schur-family) materially outperform naive prompting; LLM proposes candidates, deterministic checker validates.
+- **Structured Prompting:** Decomposition quality depends heavily on enforcing a 5-step reasoning protocol (degree, asymptotic, symmetry, known-form mapping, explicit proposal).
+- **Known Failure Classes:** Non-SOS nonnegative forms, high-degree coefficient-sensitive decompositions, and non-symmetric/conditional variants require explicit fallback ladder.
+
 ---
 
 ## 7) Confidence Tiering
@@ -329,6 +345,11 @@ Tier A requires full completion of all five steps.
 Submission policy:
 - always choose highest surviving tier.
 - never map Tier C to high-assurance label.
+
+### Research Rationale
+
+- **Checker-Centric Architecture:** Checker-centric architecture beats raw generation for reliability; confirmed as stable enough for policy encoding.
+- **Coverage is Difficulty-Dependent:** Coverage varies strongly by difficulty and domain; high at easier levels for polynomial-reducible classes, lower for insight-heavy olympiad strata.
 
 ---
 
@@ -351,6 +372,26 @@ Where:
 
 Tier thresholds are provisional until calibrated benchmark run.
 
+### SteerConf Protocol (Concrete Formulation)
+
+Probe the model with 2K+1 semantically diverse personas (cautious → vanilla → confident). Collect answers y_i and confidence scores c_i.
+
+Calibrated confidence:
+- `c(x) = μ_c · κ_ans · κ_conf`
+
+Where:
+- `μ_c`: mean verbalized confidence across steered personas
+- `κ_ans` (Answer Consistency): frequency of majority answer = max_y (count(y) / (2K+1))
+- `κ_conf` (Confidence Stability): `1 / (1 + σ_c / μ_c)` — penalizes high variance
+
+If σ_c is high (model uncertain when pressed), κ_conf drops, lowering the final score.
+
+### Research Rationale
+
+- **Correlation Reality:** Agreement among LLM agents/method variants is not independent evidence; naive independence-product confidence is unsafe.
+- **Steering/Consistency Signals:** Confidence stability under semantic steering is a useful reliability feature; variance penalties required.
+- **Thresholds Provisional:** Thresholds only become binding after benchmark calibration; exact values need local benchmark confirmation.
+
 ---
 
 ## 9) Lean Checker Policy
@@ -369,6 +410,12 @@ Performance policy:
 - maintain persistent Lean worker when possible.
 - avoid repeated cold starts.
 
+### Research Rationale
+
+- **Native Computation Path:** `native_decide` gives practical checker speedups needed for competition throughput; expanded TCB is acceptable for competition but not for theorem-library claims.
+- **Sanitization Requirement:** Unsafe Lean attributes can undermine checker trust; mandatory sanitization stage is non-negotiable.
+- **Grind Positivity Gap:** Positivity-style automation gap in core path may require explicit lemmas; keep inequality flows decomposition-first.
+
 ---
 
 ## 10) Deployment Contract (Offline Competition)
@@ -384,6 +431,56 @@ Symbolic deployment:
 Resource policy:
 - maintain explicit disk and RAM budgets for each dependency bundle
 - run startup self-tests before main solve loop
+
+### 10.1 Docker Build Recipe (Lean Offline)
+
+```dockerfile
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y \
+    curl git tar zstd build-essential python3 python3-pip \
+    libgmp-dev libffi-dev
+RUN useradd -m -s /bin/bash kaggle_user
+USER kaggle_user
+RUN curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none
+ENV PATH="/home/kaggle_user/.elan/bin:${PATH}"
+ENV LEAN_VERSION="leanprover/lean4:v4.15.0"
+RUN elan toolchain install ${LEAN_VERSION}
+```
+
+### 10.2 Persistent REPL Integration
+
+```python
+class LeanREPL:
+    def __init__(self, repl_path, env, cwd):
+        self.proc = subprocess.Popen(
+            [repl_path],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=env, cwd=cwd, text=True, bufsize=1
+        )
+    def verify(self, theorem_code):
+        command = {"cmd": theorem_code, "env": 0}
+        self.proc.stdin.write(json.dumps(command) + "\n")
+        self.proc.stdin.flush()
+        response = self.proc.stdout.readline()
+        data = json.loads(response)
+        errors = [m for m in data.get("messages", []) if m["severity"] == "error"]
+        return (len(errors) == 0), errors if errors else "Verified"
+```
+
+### 10.3 Size Estimates
+
+| Component | Size |
+|---|---|
+| Lean toolchain | ~400-500 MB |
+| Mathlib .olean cache | ~2.5-5 GB |
+| REPL cold start | 2-5s |
+| REPL per-command latency | <50ms |
+| Total disk (Kaggle) | ~6 GB / 20 GB budget |
+
+### Research Rationale
+
+- **Offline Packaging:** Sideloading prebuilt toolchains is required for strict offline runs; runtime toolchain fetch assumptions are unsafe.
+- **Cold Start vs Persistent Workers:** Repeated process cold starts degrade throughput materially; one-shot per-query subprocess strategy is non-competitive.
 
 ---
 
@@ -416,6 +513,11 @@ If any fails:
 - downgrade deployment ambition
 - tighten acceptance thresholds
 - increase fallback share
+
+### Research Rationale
+
+- **Go/No-Go Mindset:** No deployment freeze without safety and throughput gates met; if gates miss, reduce ambition and rely more on fallback.
+- **Required Metrics:** Minimum benchmark must include Tier A precision, fallback frequency, verification-generation gap, attempt-scaling slope, per-stage failure taxonomy rates, and latency/throughput.
 
 ---
 
@@ -526,6 +628,11 @@ Coverage must be reported as ranges by:
 
 Never report a single global coverage number without confidence interval and fallback split.
 
+### Research Rationale
+
+- **Coverage Findings:** Polynomial/certificate reducibility varies strongly by difficulty and domain; expected fallback share increases at harder problem strata.
+- **Reporting Rule:** Coverage claims must include uncertainty ranges; geometry/algebra coverage claims are stage-dependent and benchmark-validated.
+
 ---
 
 ## 17) Deployment Defaults
@@ -567,7 +674,66 @@ Run benchmark with:
 - verification-generation gap
 - attempt-scaling slope
 
+### 18.2.1 Metric Definitions
+
+- **VG Gap (Verification-Generation Gap):** `Verify(Acc) - Generate(Acc)`. Must be positive. A non-positive VG gap means scaling compute (more attempts) will not yield improvements — the verifier cannot distinguish good from bad solutions.
+- **Extrapolation Slope:** `(Pass@32 - Pass@1) / log(32)`. Measures marginal return on compute. Target: > 0.05. Below 0.01 indicates reasoning stagnation — the model is not finding new solution paths with more attempts.
+
 ## 18.3 Threshold Update Rule
 
 Do not modify tier thresholds on tiny batches.
 Update thresholds only after statistically meaningful sample volume and post-hoc calibration diagnostics.
+
+## 18.4 Quality Metrics
+
+### Formalization Tax (L_form)
+
+Percentage of problems where the system finds the correct answer via informal computation but fails to produce a valid Lean verification:
+
+```
+L_form = |Correct_Trace ∩ Invalid_Verification| / |Correct_Trace|
+```
+
+Measures the cost of requiring formal verification. Track per domain and difficulty band.
+
+### Rigor Bonus (G_rigor)
+
+Percentage of problems where TIR yields an incorrect answer (false positive) while Trace-to-Lean correctly rejects or finds the true solution:
+
+```
+G_rigor = |TIR_Fail ∩ Lean_Success| / |Total_Problems|
+```
+
+Measures the gain from formal verification. The system's value is proportional to problem difficulty.
+
+### Crossover Hypothesis
+
+- Easy problems (AIME 1-10): TIR outperforms due to Formalization Tax.
+- Hard problems (AIME 11-15, IMO): Trace-to-Lean outperforms due to Rigor Bonus.
+- Benchmark must report both metrics to validate crossover point.
+
+---
+
+## 19) Pipeline Parallelism and Resource Architecture
+
+### 19.1 GPU/CPU Split
+
+| Resource | Role | Notes |
+|---|---|---|
+| GPU | LLM inference only | vLLM with continuous batching |
+| CPU (high priority, 4-8 cores) | OS, vLLM scheduler, pipeline controller | Reserved; not shared with workers |
+| CPU (remaining cores) | Lean worker pool | Memory-constrained: 2-4 GB per worker |
+
+### 19.2 Time Bank Algorithm
+
+- Each problem receives base budget (`120s`).
+- Fast problems deposit surplus into shared bank.
+- Hard problems withdraw from bank, capped at `α=0.5` of current bank balance.
+- Solve easy problems first to capitalize the bank.
+
+### 19.3 Speculative Parallelism ("Shotgun")
+
+- Generate `K=4` independent traces per problem in parallel (shared prefix → cheap via vLLM).
+- Mine/verify all unique formulas simultaneously.
+- First verified answer wins; cancel remaining.
+- Trades `4x` compute for latency reduction — favorable exchange within 6-min budget.

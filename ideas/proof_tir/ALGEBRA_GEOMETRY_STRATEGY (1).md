@@ -907,6 +907,18 @@ The over-verification is still extremely powerful, just for a different reason t
 
 **Additional finding:** ~80%+ of competition inequalities (3 variables, degree ≤6) are SOS or Schur-SOS decomposable. Non-SOS competition inequalities are genuinely rare. The Schur-SOS technique covers ALL 3-variable symmetric homogeneous inequalities with equality at a=b=c.
 
+### The 5-Step SOS Reasoning Prompt (Validated)
+
+Research (SoS1, Feb 2025) shows this structured prompt boosts SOS accuracy from 55% to 81%:
+
+1. **Degree Parity:** Is the highest degree even? If not, it cannot be SOS — abort.
+2. **Asymptotic Check:** Are leading coefficients of highest-degree terms all positive? If not, expression goes to -∞.
+3. **Symmetry Scan:** Is the expression symmetric or cyclic? If cyclic, rewrite in ECPD form.
+4. **Special Case ID:** Does this match known forms (quadratic, univariate even)? Apply corresponding theorem.
+5. **Decomposition:** Construct Gram matrix Q or list squared terms q_i². Verify P - Σq_i² = 0.
+
+This sequence must be enforced as a template, not left to free-form LLM reasoning.
+
 ### 7.6 Competition Coverage at AIMO 3 Difficulty
 
 **Research finding:** AIMO 3 targets National Olympiad → IMO level difficulty. Problem reducibility to polynomial constraints varies dramatically by difficulty level:
